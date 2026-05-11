@@ -8,20 +8,18 @@ import json
 app = FastAPI()
 
 # --- CONFIGURAÇÃO DE CAMINHOS PARA VERCEL ---
-# No Vercel, usamos caminhos relativos ao arquivo atual
 DIRETORIO_BASE = os.path.dirname(os.path.abspath(__file__))
 CAMINHO_EXCEL = os.path.join(DIRETORIO_BASE, 'base_estoque.xlsx')
-
 
 def carregar_estoque_do_excel(nome_arquivo):
     estoque_dict = {}
     materiais_dict = {}
-
+    
     if not os.path.exists(nome_arquivo):
         hora_atual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        print(
-            f"[{hora_atual}] AVISO: Arquivo '{nome_arquivo}' não encontrado. Usando base de teste.")
-
+        # No Vercel, apenas imprimimos o log, não escrevemos em arquivo
+        print(f"[{hora_atual}] AVISO: Arquivo '{nome_arquivo}' não encontrado. Usando base de teste.")
+        
         estoque_teste = {
             "PRODUTO TESTE (Sem Excel)": ["839", "835", "832"],
             "BATATA TESTE 100G": ["970", "969"],
@@ -37,15 +35,15 @@ def carregar_estoque_do_excel(nome_arquivo):
         return estoque_teste, materiais_teste
 
     try:
-        # Tenta ler o Excel (Certifique-se de que 'openpyxl' está no requirements.txt)
         df = pd.read_excel(nome_arquivo)
         df.columns = [col.upper().strip() for col in df.columns]
 
+        # Verifica colunas obrigatórias
         if 'DESCRICAO' not in df.columns or 'ENDERECO' not in df.columns or 'MATERIAL' not in df.columns:
-            print(
-                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ERRO: Colunas ausentes no Excel.")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ERRO: Colunas ausentes no Excel.")
             return {}, {}
 
+        # Limpeza de dados original
         df['DESCRICAO'] = df['DESCRICAO'].fillna("SEM DESCRIÇÃO").astype(str)
         df['ENDERECO'] = df['ENDERECO'].fillna("").astype(str)
         df['MATERIAL'] = df['MATERIAL'].fillna("").astype(str)
@@ -55,21 +53,21 @@ def carregar_estoque_do_excel(nome_arquivo):
             endereco = row['ENDERECO'].strip()
             material = row['MATERIAL'].strip()
 
-            if endereco.endswith('.0'):
-                endereco = endereco[:-2]
-            if material.endswith('.0'):
-                material = material[:-2]
+            # Trata decimais vindos do Excel
+            if endereco.endswith('.0'): endereco = endereco[:-2]
+            if material.endswith('.0'): material = material[:-2]
 
+            # Alimenta dicionário de materiais
             if material and produto:
                 materiais_dict[material.upper()] = produto
 
-            if not endereco:
-                continue
+            if not endereco: continue
 
             if produto not in estoque_dict:
                 estoque_dict[produto] = set()
             estoque_dict[produto].add(endereco)
 
+        # Converte sets para listas para o JSON
         for prod in estoque_dict:
             estoque_dict[prod] = list(estoque_dict[prod])
 
@@ -77,28 +75,26 @@ def carregar_estoque_do_excel(nome_arquivo):
         return estoque_dict, materiais_dict
 
     except Exception as e:
-        print(
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ERRO AO LER EXCEL: {str(e)}")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ERRO AO LER EXCEL: {str(e)}")
         return {}, {}
 
-
-# Carrega os dados uma vez ao iniciar o servidor
+# Carrega os dados globalmente
 estoque, materiais = carregar_estoque_do_excel(CAMINHO_EXCEL)
-
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
+    # Lógica original para gerar os selects e o JSON para o Front-end
     produtos_qtd = {p: len(ends) for p, ends in estoque.items()}
     qtds_unicas = sorted(list(set(produtos_qtd.values())))
-    opcoes_qtd_html = "".join(
-        [f'<option value="{q}">{q} Endereço(s)</option>' for q in qtds_unicas])
+    opcoes_qtd_html = "".join([f'<option value="{q}">{q} Endereço(s)</option>' for q in qtds_unicas])
+    
     produtos = sorted(list(estoque.keys()))
-    opcoes_html = "".join(
-        [f'<option value="{p}">{p}</option>' for p in produtos])
+    opcoes_html = "".join([f'<option value="{p}">{p}</option>' for p in produtos])
+    
     produtos_json = json.dumps(produtos_qtd)
     materiais_json = json.dumps(materiais)
 
-    # Nota: Mantive seu HTML original aqui dentro desta string f-string
+    # Conteúdo HTML Original (preservando estilos e scripts)
     html_content = f"""
     <!DOCTYPE html>
     <html lang="pt-PT">
@@ -222,23 +218,23 @@ async def index():
                 if (id === 'vazio') return `<div class="rack vazio" data-ids="">Vazio</div>`;
                 let display = id;
                 let allIds = [id];
-                if (id >= 300 && id <= 499) {{ let pair = id - 200; display = `${{pair}}<br>${{id}}`; allIds.push(pair); }}
-                else if (id >= 500 && id <= 570) {{ let pair = id + 400; display = `${{id}}<br>${{pair}}`; allIds.push(pair); }}
-                return `<div class="rack" data-ids="${{allIds.join(',')}}">${{display}}</div>`;
+                if (id >= 300 && id <= 499) {{ let pair = id - 200; display = \`\${{pair}}<br>\${{id}}\`; allIds.push(pair); }}
+                else if (id >= 500 && id <= 570) {{ let pair = id + 400; display = \`\${{id}}<br>\${{pair}}\`; allIds.push(pair); }}
+                return `<div class="rack" data-ids="\${{allIds.join(',')}}">\${{display}}</div>`;
             }}
 
             function renderCol(arr) {{ return `<div class="col">` + arr.map(getRackHtml).join('') + `</div>`; }}
             function renderRow(arr) {{ return `<div style="display: flex; flex-direction: row;">` + arr.map(getRackHtml).join('') + `</div>`; }}
 
             function renderBlock(b) {{
-                let ml = b.ml ? `margin-left: ${{b.ml}};` : '';
-                if (b.t === 'single') return `<div class="block" style="${{ml}}">` + renderCol(b.d) + `</div>`;
-                if (b.t === 'double') return `<div class="block" style="${{ml}}">` + renderCol(b.l) + renderCol(b.r) + `</div>`;
-                if (b.t === 'special') return `<div class="block" style="${{ml}}"><div class="rack special" data-ids="${{b.id}}">${{b.id}}</div></div>`;
-                if (b.t === 'spacer') return `<div style="width: ${{b.width}};"></div>`;
-                if (b.t === 'loose_racks') return `<div class="block" style="flex-direction: row; height: fit-content; ${{ml}}">` + b.ids.map(getRackHtml).join('') + `</div>`;
+                let ml = b.ml ? `margin-left: \${{b.ml}};` : '';
+                if (b.t === 'single') return `<div class="block" style="\${{ml}}">` + renderCol(b.d) + `</div>`;
+                if (b.t === 'double') return `<div class="block" style="\${{ml}}">` + renderCol(b.l) + renderCol(b.r) + `</div>`;
+                if (b.t === 'special') return `<div class="block" style="\${{ml}}"><div class="rack special" data-ids="\${{b.id}}">\${{b.id}}</div></div>`;
+                if (b.t === 'spacer') return `<div style="width: \${{b.width}};"></div>`;
+                if (b.t === 'loose_racks') return `<div class="block" style="flex-direction: row; height: fit-content; \${{ml}}">` + b.ids.map(getRackHtml).join('') + `</div>`;
                 if (b.t === 'ring') {{
-                    return `<div class="block" style="flex-direction: column; background: #999; padding: 2px;"><div style="display: flex; justify-content: center; margin-left: 34px; margin-right: 34px;">${{renderRow(b.top)}}</div><div style="display: flex; justify-content: space-between;">${{renderCol(b.left)}}<div style="flex-grow: 1; background: #fff; margin: 0 2px;"></div>${{renderCol(b.right)}}</div><div style="display: flex; justify-content: center; margin-left: 34px; margin-right: 34px;">${{renderRow(b.bottom)}}</div><div style="display: flex; flex-direction: row;">${{b.tail ? renderCol(b.tail) : ''}}${{b.arm ? renderRow(b.arm) : ''}}</div></div>`;
+                    return `<div class="block" style="flex-direction: column; background: #999; padding: 2px;"><div style="display: flex; justify-content: center; margin-left: 34px; margin-right: 34px;">\${{renderRow(b.top)}}</div><div style="display: flex; justify-content: space-between;">\${{renderCol(b.left)}}<div style="flex-grow: 1; background: #fff; margin: 0 2px;"></div>\${{renderCol(b.right)}}</div><div style="display: flex; justify-content: center; margin-left: 34px; margin-right: 34px;">\${{renderRow(b.bottom)}}</div><div style="display: flex; flex-direction: row;">\${{b.tail ? renderCol(b.tail) : ''}}\${{b.arm ? renderRow(b.arm) : ''}}</div></div>`;
                 }}
             }}
 
@@ -253,11 +249,11 @@ async def index():
                 racks.forEach(r => r.classList.remove("highlight", "dim"));
                 if (!produto) {{ infoDiv.innerText = ""; return; }}
 
-                fetch(`/buscar/${{encodeURIComponent(produto)}}`)
+                fetch(`/buscar/\${{encodeURIComponent(produto)}}`)
                     .then(response => response.json())
                     .then(data => {{
                         const enderecosProduto = data.enderecos; 
-                        infoDiv.innerText = `🟢 Produto: ${{produto}} | Localizações: ${{enderecosProduto.join(", ")}}`;
+                        infoDiv.innerText = `🟢 Produto: \${{produto}} | Localizações: \${{enderecosProduto.join(", ")}}`;
                         let scrollFeito = false;
                         racks.forEach(r => {{
                             const idsStr = r.getAttribute("data-ids");
@@ -277,8 +273,7 @@ async def index():
     """
     return HTMLResponse(content=html_content)
 
-
-@app.get("/buscar/{{produto:path}}")
+@app.get("/buscar/{produto:path}")
 async def buscar(produto: str):
     enderecos = estoque.get(produto, [])
-    return JSONResponse(content={{"produto": produto, "enderecos": enderecos}})
+    return JSONResponse(content={"produto": produto, "enderecos": enderecos})
