@@ -10,11 +10,11 @@ app = FastAPI()
 # --- ALTERAÇÃO 1: CAMINHO DINÂMICO PARA O VERCEL ---
 DIRETORIO_BASE = os.path.dirname(os.path.abspath(__file__))
 CAMINHO_EXCEL = os.path.join(DIRETORIO_BASE, 'base_estoque.xlsx')
-# CAMINHO_LOG removido para evitar erro de escrita
+CAMINHO_LOG = os.path.join(DIRETORIO_BASE, 'log.txt')
 
 def carregar_estoque_do_excel(nome_arquivo):
     estoque_dict = {}
-    materiais_dict = {} 
+    materiais_dict = {} # Novo dicionário para guardar a relação MATERIAL -> DESCRICAO
     
     if not os.path.exists(nome_arquivo):
         hora_atual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -23,7 +23,9 @@ def carregar_estoque_do_excel(nome_arquivo):
         print(mensagem_erro)
         print("A carregar base de dados de teste temporária...")
         
-        # ALTERAÇÃO 2: REMOVIDO 'WITH OPEN' (Escrita proibida no Vercel)
+        # ALTERAÇÃO 2: DESATIVADA ESCRITA DE ARQUIVO (Vercel é Read-Only)
+        # with open(CAMINHO_LOG, "a", encoding="utf-8") as f:
+        #     f.write(mensagem_erro)
             
         estoque_teste = {
             "PRODUTO TESTE (Sem Excel)": ["839", "835", "832"],
@@ -43,9 +45,12 @@ def carregar_estoque_do_excel(nome_arquivo):
         df = pd.read_excel(nome_arquivo)
         df.columns = [col.upper().strip() for col in df.columns]
         
+        # Agora exigimos também a coluna MATERIAL
         if 'DESCRICAO' not in df.columns or 'ENDERECO' not in df.columns or 'MATERIAL' not in df.columns:
             msg_colunas = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ERRO: Colunas 'MATERIAL', 'DESCRICAO' ou 'ENDERECO' não encontradas.\n"
             print(msg_colunas)
+            # with open(CAMINHO_LOG, "a", encoding="utf-8") as f:
+            #     f.write(msg_colunas)
             return {}, {}
 
         df['DESCRICAO'] = df['DESCRICAO'].fillna("SEM DESCRIÇÃO").astype(str)
@@ -62,6 +67,7 @@ def carregar_estoque_do_excel(nome_arquivo):
             if material.endswith('.0'):
                 material = material[:-2]
                 
+            # Popula o dicionário de busca por material
             if material and produto:
                 materiais_dict[material.upper()] = produto
 
@@ -82,6 +88,8 @@ def carregar_estoque_do_excel(nome_arquivo):
     except Exception as e:
         msg_excecao = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ERRO AO LER EXCEL: {str(e)}\n"
         print(msg_excecao)
+        # with open(CAMINHO_LOG, "a", encoding="utf-8") as f:
+        #     f.write(msg_excecao)
         return {}, {}
 
 estoque, materiais = carregar_estoque_do_excel(CAMINHO_EXCEL)
@@ -96,9 +104,8 @@ async def index():
     opcoes_html = "".join([f'<option value="{p}">{p}</option>' for p in produtos])
     
     produtos_json = json.dumps(produtos_qtd)
-    materiais_json = json.dumps(materiais) 
+    materiais_json = json.dumps(materiais) # Envia o dicionário de materiais para o JavaScript
     
-    # Usei chaves duplas {{ }} onde é CSS/JS para o Python não confundir com variáveis
     html_content = f"""
     <!DOCTYPE html>
     <html lang="pt-PT">
@@ -107,37 +114,95 @@ async def index():
         <title>Maquete do Depósito Interativo</title>
         <style>
             body {{ font-family: Arial, sans-serif; text-align: center; background-color: #f4f4f9; padding: 20px; margin: 0; }}
+            
             .controles-container {{ display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; margin-top: 10px; }}
             select, input[type="text"] {{ padding: 12px; font-size: 15px; border-radius: 6px; border: 1px solid #ccc; cursor: pointer; }}
             select {{ width: 300px; }}
             input[type="text"] {{ width: 250px; cursor: text; }}
+            
             #info {{ margin-top: 15px; margin-bottom: 25px; font-size: 18px; font-weight: bold; color: #333; height: 25px; }}
-            .warehouse-wrapper {{ background-color: #b0b0b0; padding: 30px; border-radius: 8px; display: inline-block; box-shadow: 0 10px 20px rgba(0,0,0,0.2); white-space: nowrap; }}
+            
+            .warehouse-wrapper {{ 
+                background-color: #b0b0b0; 
+                padding: 30px; 
+                border-radius: 8px; 
+                display: inline-block; 
+                box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+                white-space: nowrap; 
+            }}
             .flex-row {{ display: flex; flex-direction: row; gap: 30px; }}
             .block {{ display: flex; flex-direction: row; background: #999; padding: 2px; height: fit-content; }}
             .col {{ display: flex; flex-direction: column; }}
-            .rack {{ background-color: #ff0000; color: black; font-size: 10px; font-weight: bold; width: 32px; height: 26px; margin: 1px; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: all 0.3s ease; border: 1px solid #cc0000; line-height: 1.1; box-sizing: border-box; }}
+            
+            .rack {{ 
+                background-color: #ff0000; 
+                color: black; 
+                font-size: 10px; 
+                font-weight: bold;
+                width: 32px; 
+                height: 26px; 
+                margin: 1px; 
+                display: flex; 
+                flex-direction: column;
+                align-items: center; 
+                justify-content: center; 
+                transition: all 0.3s ease;
+                border: 1px solid #cc0000;
+                line-height: 1.1;
+                box-sizing: border-box;
+            }}
             .rack.special {{ height: 100%; width: 50px; font-size: 14px; flex-direction: row; }}
             .rack.vazio {{ background-color: #c62828 !important; color: #ffcdd2 !important; font-size: 8px; border-color: #b71c1c; opacity: 0.8; }}
-            .main-aisle {{ background: repeating-linear-gradient(45deg, #FFEA00, #FFEA00 20px, #FFD600 20px, #FFD600 40px); height: 35px; margin: 25px 0; border-top: 3px solid #333; border-bottom: 3px solid #333; display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 10px rgba(0,0,0,0.3); font-weight: 900; color: #222; letter-spacing: 8px; font-size: 14px; text-transform: uppercase; border-radius: 4px; }}
-            .highlight {{ background-color: #00FF00 !important; color: black !important; transform: scale(1.4); border: 2px solid #005500; box-shadow: 0 0 10px #00FF00; z-index: 100; position: relative; }}
+            
+            .main-aisle {{
+                background: repeating-linear-gradient(45deg, #FFEA00, #FFEA00 20px, #FFD600 20px, #FFD600 40px);
+                height: 35px;
+                margin: 25px 0;
+                border-top: 3px solid #333;
+                border-bottom: 3px solid #333;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: inset 0 0 10px rgba(0,0,0,0.3);
+                font-weight: 900;
+                color: #222;
+                letter-spacing: 8px;
+                font-size: 14px;
+                text-transform: uppercase;
+                border-radius: 4px;
+            }}
+            
+            .highlight {{ 
+                background-color: #00FF00 !important; 
+                color: black !important; 
+                transform: scale(1.4); 
+                border: 2px solid #005500; 
+                box-shadow: 0 0 10px #00FF00; 
+                z-index: 100; 
+                position: relative; 
+            }}
             .dim {{ opacity: 0.15; filter: grayscale(80%); }}
         </style>
     </head>
     <body>
         <h1>Visão Geral do Depósito 📦</h1>
+        
         <div class="controles-container">
             <input type="text" id="buscaMaterial" placeholder="Buscar código do Material..." oninput="buscarPorMaterial()">
+
             <select id="qtdSelect" onchange="filtrarProdutos()">
                 <option value="">Filtrar por qtd. endereços (Todos)</option>
                 {opcoes_qtd_html}
             </select>
+
             <select id="produtoSelect" onchange="destacarProduto()">
                 <option value="">Selecione um Produto para localizar...</option>
                 {opcoes_html}
             </select>
         </div>
+        
         <div id="info"></div>
+
         <div class="warehouse-wrapper">
             <div style="display: flex; justify-content: flex-end; padding-right: 170px; margin-bottom: 20px;">
                 <div class="block" id="topTopRow"></div>
@@ -146,6 +211,7 @@ async def index():
             <div class="main-aisle">🚧 CORREDOR PRINCIPAL 🚧</div>
             <div id="bottomRow" class="flex-row" style="align-items: flex-start;"></div>
         </div>
+
         <script>
             const produtosData = {produtos_json};
             const materiaisData = {materiais_json};
@@ -282,4 +348,4 @@ async def buscar(produto: str):
     enderecos = estoque.get(produto, [])
     return JSONResponse(content={"produto": produto, "enderecos": enderecos})
 
-# ALTERAÇÃO 3: REMOVIDO BLOCO IF __NAME__ == "__MAIN__"
+# ALTERAÇÃO 3: REMOVIDO BLOCO IF __NAME__ == "__MAIN__" PARA O VERCEL
