@@ -1,5 +1,3 @@
 ﻿fastapi
 pandas
 openpyxl
-jinja2
-uvicorn
