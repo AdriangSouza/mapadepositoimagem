@@ -1,3 +1,1 @@
-﻿fastapi
-pandas
-openpyxl
+￾昀愀猀琀愀瀀椀ഀ਀瀀愀渀搀愀猀ഀ਀漀瀀攀渀瀀礀砀氀ഀ਀
