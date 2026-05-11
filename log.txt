@@ -1,0 +1,2 @@
+[2026-05-11 14:07:33] ERRO AO LER EXCEL: `Import openpyxl` failed.  Use pip or conda to install the openpyxl package.
+[2026-05-11 14:37:45] ERRO AO LER EXCEL: `Import openpyxl` failed.  Use pip or conda to install the openpyxl package.
