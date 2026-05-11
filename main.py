@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
+import uvicorn
 import pandas as pd
 import os
 from datetime import datetime
@@ -7,10 +8,12 @@ import json
 
 app = FastAPI()
 
-# --- ALTERAÇÃO 1: CAMINHO DINÂMICO PARA O VERCEL ---
+# --- CORREÇÃO DE CAMINHOS ---
 DIRETORIO_BASE = os.path.dirname(os.path.abspath(__file__))
 CAMINHO_EXCEL = os.path.join(DIRETORIO_BASE, 'base_estoque.xlsx')
-CAMINHO_LOG = os.path.join(DIRETORIO_BASE, 'log.txt')
+
+# MUDANÇA: O Vercel só permite salvar arquivos na pasta temporária /tmp
+CAMINHO_LOG = '/tmp/log.txt' 
 
 def carregar_estoque_do_excel(nome_arquivo):
     estoque_dict = {}
@@ -23,9 +26,8 @@ def carregar_estoque_do_excel(nome_arquivo):
         print(mensagem_erro)
         print("A carregar base de dados de teste temporária...")
         
-        # ALTERAÇÃO 2: DESATIVADA ESCRITA DE ARQUIVO (Vercel é Read-Only)
-        # with open(CAMINHO_LOG, "a", encoding="utf-8") as f:
-        #     f.write(mensagem_erro)
+        with open(CAMINHO_LOG, "a", encoding="utf-8") as f:
+            f.write(mensagem_erro)
             
         estoque_teste = {
             "PRODUTO TESTE (Sem Excel)": ["839", "835", "832"],
@@ -49,8 +51,8 @@ def carregar_estoque_do_excel(nome_arquivo):
         if 'DESCRICAO' not in df.columns or 'ENDERECO' not in df.columns or 'MATERIAL' not in df.columns:
             msg_colunas = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ERRO: Colunas 'MATERIAL', 'DESCRICAO' ou 'ENDERECO' não encontradas.\n"
             print(msg_colunas)
-            # with open(CAMINHO_LOG, "a", encoding="utf-8") as f:
-            #     f.write(msg_colunas)
+            with open(CAMINHO_LOG, "a", encoding="utf-8") as f:
+                f.write(msg_colunas)
             return {}, {}
 
         df['DESCRICAO'] = df['DESCRICAO'].fillna("SEM DESCRIÇÃO").astype(str)
@@ -88,8 +90,8 @@ def carregar_estoque_do_excel(nome_arquivo):
     except Exception as e:
         msg_excecao = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ERRO AO LER EXCEL: {str(e)}\n"
         print(msg_excecao)
-        # with open(CAMINHO_LOG, "a", encoding="utf-8") as f:
-        #     f.write(msg_excecao)
+        with open(CAMINHO_LOG, "a", encoding="utf-8") as f:
+            f.write(msg_excecao)
         return {}, {}
 
 estoque, materiais = carregar_estoque_do_excel(CAMINHO_EXCEL)
@@ -214,16 +216,25 @@ async def index():
 
         <script>
             const produtosData = {produtos_json};
-            const materiaisData = {materiais_json};
+            const materiaisData = {materiais_json}; // Carrega o mapeamento no front-end
 
+            // Nova Função: Busca o código do material enquanto o utilizador digita
             function buscarPorMaterial() {{
                 const codigo = document.getElementById("buscaMaterial").value.trim().toUpperCase();
+                
+                // Se o código digitado existir na nossa base
                 if (materiaisData[codigo]) {{
                     const produtoEncontrado = materiaisData[codigo];
+
+                    // 1. Limpa o filtro de quantidade para garantir que o produto vai aparecer na lista
                     document.getElementById("qtdSelect").value = "";
                     filtrarProdutos(); 
+
+                    // 2. Força a seleção do produto encontrado
                     const produtoSelect = document.getElementById("produtoSelect");
                     produtoSelect.value = produtoEncontrado;
+
+                    // 3. Destaca no mapa
                     destacarProduto();
                 }}
             }}
@@ -232,30 +243,42 @@ async def index():
                 const qtdSelecionada = document.getElementById("qtdSelect").value;
                 const produtoSelect = document.getElementById("produtoSelect");
                 const produtoAnterior = produtoSelect.value;
+
                 produtoSelect.innerHTML = '<option value="">Selecione um Produto para localizar...</option>';
                 let produtosFiltrados = Object.keys(produtosData);
+
                 if (qtdSelecionada !== "") {{
                     produtosFiltrados = produtosFiltrados.filter(p => produtosData[p] == qtdSelecionada);
                 }}
+
                 produtosFiltrados.sort();
+
                 produtosFiltrados.forEach(p => {{
                     let opt = document.createElement("option");
-                    opt.value = p; opt.innerText = p;
+                    opt.value = p;
+                    opt.innerText = p;
                     produtoSelect.appendChild(opt);
                 }});
+
                 if (produtosFiltrados.includes(produtoAnterior)) {{
                     produtoSelect.value = produtoAnterior; 
-                }} else {{ destacarProduto(); }}
+                }} else {{
+                    destacarProduto(); 
+                }}
             }}
 
             function r(start, end) {{
                 let arr = [];
-                if (start <= end) {{ for (let i = start; i <= end; i++) arr.push(i); }}
-                else {{ for (let i = start; i >= end; i--) arr.push(i); }}
+                if (start <= end) {{
+                    for (let i = start; i <= end; i++) arr.push(i);
+                }} else {{
+                    for (let i = start; i >= end; i--) arr.push(i);
+                }}
                 return arr;
             }}
 
             const v4 = ['vazio', 'vazio', 'vazio', 'vazio'];
+
             const topRowData = [
                 {{ t: 'single', d: [...v4, ...r(312, 300)] }},
                 {{ t: 'double', l: [...v4, ...r(313, 323), 801], r: [...v4, ...r(334, 324), 802] }},
@@ -266,7 +289,14 @@ async def index():
                 {{ t: 'single', d: [844, ...r(442, 428), 810] }},
                 {{ t: 'special', id: 800 }},
                 {{ t: 'single', d: [845, ...r(457, 443), 811] }},
-                {{ t: 'ring', left: [846, ...r(458, 466)], top: r(847, 853), bottom: r(824, 830), right: [854, ...r(878, 871), 831], tail: [812, ...r(467, 471)], arm: r(839, 832) }},
+                {{ t: 'ring', 
+                  left: [846, ...r(458, 466)], 
+                  top: r(847, 853), 
+                  bottom: r(824, 830), 
+                  right: [854, ...r(878, 871), 831],
+                  tail: [812, ...r(467, 471)], 
+                  arm: r(839, 832) 
+                }},
                 {{ t: 'spacer', width: '30px' }}, 
                 {{ t: 'single', d: r(879, 885) }}
             ];
@@ -285,26 +315,66 @@ async def index():
             ];
 
             function getRackHtml(id) {{
-                if (id === 'vazio') return `<div class="rack vazio" data-ids="">Vazio</div>`;
+                if (id === 'vazio') {{
+                    return `<div class="rack vazio" data-ids="">Vazio</div>`;
+                }}
+
                 let display = id;
                 let allIds = [id];
-                if (id >= 300 && id <= 499) {{ let pair = id - 200; display = \`\${{pair}}<br>\${{id}}\`; allIds.push(pair); }}
-                else if (id >= 500 && id <= 570) {{ let pair = id + 400; display = \`\${{id}}<br>\${{pair}}\`; allIds.push(pair); }}
-                return `<div class="rack" data-ids="\${{allIds.join(',')}}">\${{display}}</div>`;
+
+                if (id >= 300 && id <= 499) {{
+                    let pair = id - 200;
+                    display = `${{pair}}<br>${{id}}`;
+                    allIds.push(pair);
+                }} else if (id >= 500 && id <= 570) {{
+                    let pair = id + 400;
+                    display = `${{id}}<br>${{pair}}`;
+                    allIds.push(pair);
+                }}
+                return `<div class="rack" data-ids="${{allIds.join(',')}}">${{display}}</div>`;
             }}
 
-            function renderCol(arr) {{ return `<div class="col">` + arr.map(getRackHtml).join('') + `</div>`; }}
-            function renderRow(arr) {{ return `<div style="display: flex; flex-direction: row;">` + arr.map(getRackHtml).join('') + `</div>`; }}
+            function renderCol(arr) {{
+                return `<div class="col">` + arr.map(getRackHtml).join('') + `</div>`;
+            }}
+
+            function renderRow(arr) {{
+                return `<div style="display: flex; flex-direction: row;">` + arr.map(getRackHtml).join('') + `</div>`;
+            }}
 
             function renderBlock(b) {{
-                let ml = b.ml ? \`margin-left: \${{b.ml}};\` : '';
-                if (b.t === 'single') return `<div class="block" style="\${{ml}}">` + renderCol(b.d) + `</div>`;
-                if (b.t === 'double') return `<div class="block" style="\${{ml}}">` + renderCol(b.l) + renderCol(b.r) + `</div>`;
-                if (b.t === 'special') return `<div class="block" style="\${{ml}}"><div class="rack special" data-ids="\${{b.id}}">\${{b.id}}</div></div>`;
-                if (b.t === 'spacer') return `<div style="width: \${{b.width}};"></div>`;
-                if (b.t === 'loose_racks') return `<div class="block" style="flex-direction: row; height: fit-content; \${{ml}}">` + b.ids.map(getRackHtml).join('') + `</div>`;
+                let ml = b.ml ? `margin-left: ${{b.ml}};` : '';
+                
+                if (b.t === 'single') return `<div class="block" style="${{ml}}">` + renderCol(b.d) + `</div>`;
+                if (b.t === 'double') return `<div class="block" style="${{ml}}">` + renderCol(b.l) + renderCol(b.r) + `</div>`;
+                if (b.t === 'special') return `<div class="block" style="${{ml}}"><div class="rack special" data-ids="${{b.id}}">${{b.id}}</div></div>`;
+                if (b.t === 'spacer') return `<div style="width: ${{b.width}};"></div>`;
+                
+                if (b.t === 'loose_racks') {{
+                    return `<div class="block" style="flex-direction: row; height: fit-content; ${{ml}}">` + 
+                           b.ids.map(getRackHtml).join('') + 
+                           `</div>`;
+                }}
+                
                 if (b.t === 'ring') {{
-                    return `<div class="block" style="flex-direction: column; background: #999; padding: 2px;"><div style="display: flex; justify-content: center; margin-left: 34px; margin-right: 34px;">\${{renderRow(b.top)}}</div><div style="display: flex; justify-content: space-between;">\${{renderCol(b.left)}}<div style="flex-grow: 1; background: #fff; margin: 0 2px;"></div>\${{renderCol(b.right)}}</div><div style="display: flex; justify-content: center; margin-left: 34px; margin-right: 34px;">\${{renderRow(b.bottom)}}</div><div style="display: flex; flex-direction: row;">\${{b.tail ? renderCol(b.tail) : ''}}\${{b.arm ? renderRow(b.arm) : ''}}</div></div>`;
+                    return `
+                    <div class="block" style="flex-direction: column; background: #999; padding: 2px;">
+                        <div style="display: flex; justify-content: center; margin-left: 34px; margin-right: 34px;">
+                            ${{renderRow(b.top)}}
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            ${{renderCol(b.left)}}
+                            <div style="flex-grow: 1; background: #fff; margin: 0 2px;"></div>
+                            ${{renderCol(b.right)}}
+                        </div>
+                        <div style="display: flex; justify-content: center; margin-left: 34px; margin-right: 34px;">
+                            ${{renderRow(b.bottom)}}
+                        </div>
+                        <div style="display: flex; flex-direction: row;">
+                            ${{b.tail ? renderCol(b.tail) : ''}}
+                            ${{b.arm ? renderRow(b.arm) : ''}}
+                        </div>
+                    </div>`;
                 }}
             }}
 
@@ -316,24 +386,41 @@ async def index():
                 const produto = document.getElementById("produtoSelect").value;
                 const infoDiv = document.getElementById("info");
                 const racks = document.querySelectorAll(".rack");
-                racks.forEach(r => r.classList.remove("highlight", "dim"));
-                if (!produto) {{ infoDiv.innerText = ""; return; }}
 
-                fetch(\`/buscar/\${{encodeURIComponent(produto)}}\`)
+                racks.forEach(r => r.classList.remove("highlight", "dim"));
+
+                if (!produto) {{
+                    infoDiv.innerText = "";
+                    return;
+                }}
+
+                fetch(`/buscar/${{encodeURIComponent(produto)}}`)
                     .then(response => response.json())
                     .then(data => {{
                         const enderecosProduto = data.enderecos; 
-                        infoDiv.innerText = \`🟢 Produto: \${{produto}} | Localizações: \${{enderecosProduto.join(", ")}}\`;
+                        
+                        const enderecosTexto = enderecosProduto.join(", ");
+                        infoDiv.innerText = `🟢 Produto: ${{produto}} | Localizações do Sistema: ${{enderecosTexto}}`;
+
                         let scrollFeito = false;
+
                         racks.forEach(r => {{
                             const idsStr = r.getAttribute("data-ids");
                             if(!idsStr) return; 
+
                             const idsDaCaixa = idsStr.split(",");
                             const isMatch = enderecosProduto.some(end => idsDaCaixa.includes(String(end)));
+
                             if (isMatch) {{
                                 r.classList.add("highlight");
-                                if (!scrollFeito) {{ r.scrollIntoView({{ behavior: "smooth", block: "center", inline: "center" }}); scrollFeito = true; }}
-                            }} else {{ r.classList.add("dim"); }}
+                                
+                                if (!scrollFeito) {{
+                                    r.scrollIntoView({{ behavior: "smooth", block: "center", inline: "center" }});
+                                    scrollFeito = true;
+                                }}
+                            }} else {{
+                                r.classList.add("dim");
+                            }}
                         }});
                     }});
             }}
@@ -348,4 +435,5 @@ async def buscar(produto: str):
     enderecos = estoque.get(produto, [])
     return JSONResponse(content={"produto": produto, "enderecos": enderecos})
 
-# ALTERAÇÃO 3: REMOVIDO BLOCO IF __NAME__ == "__MAIN__" PARA O VERCEL
+if __name__ == "__main__":
+    uvicorn.run(app, host="127.0.0.1", port=8000)
