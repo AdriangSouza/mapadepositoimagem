@@ -10,9 +10,7 @@ app = FastAPI()
 # --- CORREÇÃO DE CAMINHOS ---
 DIRETORIO_BASE = os.path.dirname(os.path.abspath(__file__))
 CAMINHO_EXCEL = os.path.join(DIRETORIO_BASE, 'base_estoque.xlsx')
-
-# MUDANÇA: O Vercel só permite salvar arquivos na pasta temporária /tmp
-CAMINHO_LOG = '/tmp/log.txt' 
+CAMINHO_LOG = '/tmp/log.txt' # <-- Única mudança de caminho para o Vercel não travar
 
 def carregar_estoque_do_excel(nome_arquivo):
     estoque_dict = {}
