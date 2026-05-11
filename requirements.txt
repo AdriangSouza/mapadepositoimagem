@@ -1,1 +1,3 @@
-fastapipandasopenpyxl
+fastapi
+pandas
+openpyxl
