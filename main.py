@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
-import uvicorn
 import pandas as pd
 import os
 from datetime import datetime
@@ -434,6 +433,3 @@ async def index():
 async def buscar(produto: str):
     enderecos = estoque.get(produto, [])
     return JSONResponse(content={"produto": produto, "enderecos": enderecos})
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
